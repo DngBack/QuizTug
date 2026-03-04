@@ -236,7 +236,7 @@ export async function registerRoutes(
       }
     });
 
-    ws.on("close", () => {
+    ws.on("close", async () => {
       const clients = roomConnections.get(roomId);
       if (clients) {
         delete clients[playerId];
@@ -246,6 +246,12 @@ export async function registerRoutes(
           if (engine) {
             engine.stop();
             activeGames.delete(roomId);
+            gameStates.delete(roomId);
+            try {
+              await storage.updateRoomStatus(roomId, "ended");
+            } catch (_) {
+              // ignore storage errors on cleanup
+            }
           }
         }
       }
@@ -381,11 +387,15 @@ export async function registerRoutes(
       const players = await storage.getPlayersByRoomId(room.id);
       const gameState = gameStates.get(room.id);
 
+      if (!gameState) {
+        return res.status(404).json({ message: "Game results not available" });
+      }
+
       let csv = "Metric,Team A,Team B\n";
-      csv += `Score,${gameState?.teamAScore || 0},${gameState?.teamBScore || 0}\n`;
-      csv += `Correct Answers,${gameState?.teamACorrect || 0},${gameState?.teamBCorrect || 0}\n`;
-      csv += `Rope Position,,${gameState?.ropePosition || 0}\n`;
-      csv += `Winner,,${gameState?.winner || "N/A"}\n`;
+      csv += `Score,${gameState.teamAScore},${gameState.teamBScore}\n`;
+      csv += `Correct Answers,${gameState.teamACorrect},${gameState.teamBCorrect}\n`;
+      csv += `Rope Position,,${gameState.ropePosition}\n`;
+      csv += `Winner,,${gameState.winner ?? "N/A"}\n`;
       csv += `\nPlayers\n`;
       csv += `Nickname,Team\n`;
       players.filter(p => !p.isHost).forEach(p => {
